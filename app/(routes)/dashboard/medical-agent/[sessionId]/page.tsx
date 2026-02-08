@@ -68,7 +68,7 @@ const MedicalVoiceAgent = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      toast.error('Use Chrome or Edge browser');
+      toast.error('Speech Recognition not supported. Use Chrome, Edge, or Safari.');
       return null;
     }
 
@@ -76,41 +76,71 @@ const MedicalVoiceAgent = () => {
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
+      console.log('🎤 Speech recognition started - please speak now');
       setIsListening(true);
       setCurrentRole('user');
+      setLiveTranscripts('Listening...');
     };
 
     recognition.onresult = (event: any) => {
+      let interimTranscript = '';
       let finalTranscript = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        
         if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript + ' ';
+          finalTranscript += transcript + ' ';
+        } else {
+          interimTranscript += transcript;
         }
       }
 
+      // Show live transcript as user speaks
+      if (interimTranscript) {
+        setLiveTranscripts(`You: ${interimTranscript}`);
+      }
+
       if (finalTranscript) {
+        console.log('✅ Final transcript:', finalTranscript);
         handleUserSpeech(finalTranscript.trim());
       }
     };
 
     recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      toast.error(`Mic error: ${event.error}`);
+      console.error('🔴 Speech recognition error:', event.error);
+      
+      let errorMsg = `Mic error: ${event.error}`;
+      
+      if (event.error === 'no-speech') {
+        errorMsg = 'No speech detected. Please speak louder and try again.';
+      } else if (event.error === 'not-allowed') {
+        errorMsg = 'Microphone permission denied. Check browser settings.';
+      } else if (event.error === 'network') {
+        errorMsg = 'Network error. Check your internet connection.';
+      }
+      
+      setLiveTranscripts(errorMsg);
+      toast.error(errorMsg);
     };
 
     recognition.onend = () => {
+      console.log('⏹️ Speech recognition ended');
       setIsListening(false);
-      if (callStarted) {
+      setLiveTranscripts('');
+      
+      if (callStarted && recognitionRef.current) {
         setTimeout(() => {
           try {
-            recognition.start();
+            console.log('🔄 Restarting speech recognition...');
+            recognitionRef.current?.start();
           } catch (err) {
-            console.error('Error restarting recognition:', err);
+            console.log('Recognition already running or unavailable');
           }
-        }, 500);
+        }, 1000);
       }
     };
 
@@ -187,18 +217,25 @@ const MedicalVoiceAgent = () => {
       return;
     }
 
-    const recognition = initializeSpeechRecognition();
-    if (!recognition) return;
+    try {
+      const recognition = initializeSpeechRecognition();
+      if (!recognition) return;
 
-    recognitionRef.current = recognition;
-    recognition.start();
+      recognitionRef.current = recognition;
+      recognition.start();
 
-    setCallStarted(true);
+      setCallStarted(true);
 
-    const welcome = "Hello, I am your AI Medical Voice Agent. How can I help you today?";
-    conversationHistory.current.push({ role: 'assistant', content: welcome });
-    setMessages([{ role: 'assistant', text: welcome }]);
-    speakText(welcome);
+      const welcome = "Hello, I am your AI Medical Voice Agent. How can I help you today?";
+      conversationHistory.current.push({ role: 'assistant', content: welcome });
+      setMessages([{ role: 'assistant', text: welcome }]);
+      speakText(welcome);
+      
+      console.log('✅ Call started successfully');
+    } catch (err) {
+      console.error('Error starting call:', err);
+      toast.error('Failed to start call. Check browser permissions.');
+    }
   };
 
   const endCall = async () => {
@@ -235,6 +272,19 @@ const MedicalVoiceAgent = () => {
             height={120}
             className='rounded-full'
           />
+
+          {/* Live Transcript Display */}
+          {callStarted && (
+            <div className='mt-8 w-full max-w-2xl'>
+              <div className='bg-gray-800 text-white rounded-lg p-4 min-h-16 flex items-center justify-center'>
+                {liveTranscripts ? (
+                  <p className='text-sm'>{liveTranscripts}</p>
+                ) : (
+                  <p className='text-gray-400 text-sm'>Waiting for input...</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {!callStarted ? (
             <Button className='mt-20' onClick={startCall}>
