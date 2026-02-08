@@ -38,6 +38,7 @@ const MedicalVoiceAgent = () => {
 
   const recognitionRef = useRef<any>(null);
   const synthesisRef = useRef<SpeechSynthesis | null>(null);
+  const shouldRestartRecognition = useRef<boolean>(false);
   const conversationHistory = useRef<Array<{ role: string, content: string }>>([]);
 
   useEffect(() => {
@@ -162,20 +163,10 @@ const MedicalVoiceAgent = () => {
         clearTimeout(speechDetectedTimeout);
       }
 
-      console.log('⏹️ Speech recognition ended');
+      console.log('⏹️ Speech recognition ended (will restart after AI responds)');
       setIsListening(false);
-      
-      // Only restart if call is still active
-      if (callStarted && recognitionRef.current && !isSpeaking) {
-        setTimeout(() => {
-          try {
-            console.log('🔄 Restarting speech recognition...');
-            recognitionRef.current?.start();
-          } catch (err) {
-            console.log('Recognition restart failed:', err);
-          }
-        }, 500);
-      }
+      setLiveTranscripts('');
+      // Don't restart here - let the TTS onend handler manage restart timing
     };
 
     return recognition;
@@ -190,6 +181,7 @@ const MedicalVoiceAgent = () => {
     setMessages(prev => [...prev, userMessage]);
     conversationHistory.current.push({ role: 'user', content: transcript });
 
+    shouldRestartRecognition.current = true; // Enable restart for next AI response
     await getAIResponse();
   };
 
@@ -227,19 +219,40 @@ const MedicalVoiceAgent = () => {
     synthesisRef.current.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onstart = () => {
+      console.log('🔊 AI speaking...');
+      setIsSpeaking(true);
+    };
     utterance.onend = () => {
+      console.log('🔊 AI finished speaking');
       setIsSpeaking(false);
       setCurrentRole(null);
       
-      // Restart speech recognition after AI finishes speaking
-      if (callStarted && recognitionRef.current) {
-        try {
-          recognitionRef.current.start();
-        } catch (err) {
-          console.log('Recognition already running');
-        }
+      // Only restart recognition if this is a user-response message (not welcome)
+      if (!shouldRestartRecognition.current) {
+        console.log('ℹ️ Welcome message spoken - recognition already listening in background');
+        return;
       }
+      
+      // Wait 1.5 seconds after TTS finishes, then restart recognition
+      setTimeout(() => {
+        if (callStarted && recognitionRef.current) {
+          try {
+            console.log('🎤 Restarting recognition after AI response...');
+            recognitionRef.current.start();
+          } catch (err) {
+            console.log('⚠️ Failed to restart recognition:', err);
+            // Try again after another 500ms
+            setTimeout(() => {
+              try {
+                recognitionRef.current?.start();
+              } catch (err2) {
+                console.log('⚠️ Second restart attempt failed');
+              }
+            }, 500);
+          }
+        }
+      }, 1500);
     };
 
     synthesisRef.current.speak(utterance);
@@ -259,6 +272,7 @@ const MedicalVoiceAgent = () => {
       recognition.start();
 
       setCallStarted(true);
+      shouldRestartRecognition.current = false; // Don't restart for welcome message
 
       const welcome = "Hello, I am your AI Medical Voice Agent. How can I help you today?";
       conversationHistory.current.push({ role: 'assistant', content: welcome });
