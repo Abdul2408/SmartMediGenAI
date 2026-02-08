@@ -96,10 +96,21 @@ const MedicalVoiceAgent = () => {
       }
     };
 
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      toast.error(`Mic error: ${event.error}`);
+    };
+
     recognition.onend = () => {
       setIsListening(false);
       if (callStarted) {
-        setTimeout(() => recognition.start(), 500);
+        setTimeout(() => {
+          try {
+            recognition.start();
+          } catch (err) {
+            console.error('Error restarting recognition:', err);
+          }
+        }, 500);
       }
     };
 
@@ -107,6 +118,10 @@ const MedicalVoiceAgent = () => {
   };
 
   const handleUserSpeech = async (transcript: string) => {
+    // Stop AI speaking when user starts speaking
+    synthesisRef.current?.cancel();
+    setIsSpeaking(false);
+
     const userMessage: Message = { role: 'user', text: transcript };
     setMessages(prev => [...prev, userMessage]);
     conversationHistory.current.push({ role: 'user', content: transcript });
@@ -152,6 +167,15 @@ const MedicalVoiceAgent = () => {
     utterance.onend = () => {
       setIsSpeaking(false);
       setCurrentRole(null);
+      
+      // Restart speech recognition after AI finishes speaking
+      if (callStarted && recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+        } catch (err) {
+          console.log('Recognition already running');
+        }
+      }
     };
 
     synthesisRef.current.speak(utterance);
@@ -171,7 +195,7 @@ const MedicalVoiceAgent = () => {
 
     setCallStarted(true);
 
-    const welcome = "Hello, I am your AI Medical Voice Agent. How can I help you?";
+    const welcome = "Hello, I am your AI Medical Voice Agent. How can I help you today?";
     conversationHistory.current.push({ role: 'assistant', content: welcome });
     setMessages([{ role: 'assistant', text: welcome }]);
     speakText(welcome);
