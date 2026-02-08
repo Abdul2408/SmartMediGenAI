@@ -73,19 +73,39 @@ const MedicalVoiceAgent = () => {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    // CRITICAL: Set continuous to false to avoid timeout issues
+    // continuous=true causes the API to aggressively timeout if no speech is detected immediately
+    recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
     recognition.maxAlternatives = 1;
+    // Increase sound start threshold to be more sensitive to audio
+    (recognition as any).soundStartThreshold = 0.1;
+
+    let speechDetectedTimeout: any = null;
+    let hasDetectedSpeech = false;
 
     recognition.onstart = () => {
-      console.log('🎤 Speech recognition started - please speak now');
+      console.log('🎤 Speech recognition started - listening for up to 10 seconds...');
       setIsListening(true);
       setCurrentRole('user');
-      setLiveTranscripts('Listening...');
+      setLiveTranscripts('Listening... (speak now)');
+      hasDetectedSpeech = false;
+
+      // Fallback: if no speech detected within 10 seconds, restart
+      speechDetectedTimeout = setTimeout(() => {
+        if (!hasDetectedSpeech && recognitionRef.current) {
+          console.log('⚠️ No speech detected in 10 seconds, restarting...');
+          recognitionRef.current.stop();
+        }
+      }, 10000);
     };
 
     recognition.onresult = (event: any) => {
+      if (speechDetectedTimeout) {
+        clearTimeout(speechDetectedTimeout);
+      }
+
       let interimTranscript = '';
       let finalTranscript = '';
 
@@ -94,6 +114,7 @@ const MedicalVoiceAgent = () => {
         
         if (event.results[i].isFinal) {
           finalTranscript += transcript + ' ';
+          hasDetectedSpeech = true;
         } else {
           interimTranscript += transcript;
         }
@@ -101,26 +122,35 @@ const MedicalVoiceAgent = () => {
 
       // Show live transcript as user speaks
       if (interimTranscript) {
+        console.log('📝 Interim:', interimTranscript);
         setLiveTranscripts(`You: ${interimTranscript}`);
       }
 
       if (finalTranscript) {
         console.log('✅ Final transcript:', finalTranscript);
+        recognitionRef.current?.stop();
         handleUserSpeech(finalTranscript.trim());
       }
     };
 
     recognition.onerror = (event: any) => {
+      if (speechDetectedTimeout) {
+        clearTimeout(speechDetectedTimeout);
+      }
+
       console.error('🔴 Speech recognition error:', event.error);
       
       let errorMsg = `Mic error: ${event.error}`;
       
       if (event.error === 'no-speech') {
-        errorMsg = 'No speech detected. Please speak louder and try again.';
+        errorMsg = 'No speech heard. Tap microphone settings to verify access, then try again.';
+        console.log('💡 Debug: no-speech usually means permission denied or mic not working');
       } else if (event.error === 'not-allowed') {
-        errorMsg = 'Microphone permission denied. Check browser settings.';
+        errorMsg = 'Microphone permission denied. Allow mic access in browser settings → Privacy.';
       } else if (event.error === 'network') {
-        errorMsg = 'Network error. Check your internet connection.';
+        errorMsg = 'Network error detected. Check internet connection.';
+      } else if (event.error === 'audio-capture') {
+        errorMsg = 'No microphone found or mic is unavailable.';
       }
       
       setLiveTranscripts(errorMsg);
@@ -128,19 +158,23 @@ const MedicalVoiceAgent = () => {
     };
 
     recognition.onend = () => {
+      if (speechDetectedTimeout) {
+        clearTimeout(speechDetectedTimeout);
+      }
+
       console.log('⏹️ Speech recognition ended');
       setIsListening(false);
-      setLiveTranscripts('');
       
-      if (callStarted && recognitionRef.current) {
+      // Only restart if call is still active
+      if (callStarted && recognitionRef.current && !isSpeaking) {
         setTimeout(() => {
           try {
             console.log('🔄 Restarting speech recognition...');
             recognitionRef.current?.start();
           } catch (err) {
-            console.log('Recognition already running or unavailable');
+            console.log('Recognition restart failed:', err);
           }
-        }, 1000);
+        }, 500);
       }
     };
 
