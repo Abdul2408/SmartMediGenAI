@@ -196,11 +196,13 @@ const MedicalVoiceAgent = () => {
         sessionDetail?.selectedDoctor?.agentPrompt ||
         "You are a helpful medical assistant.";
 
+      console.log('📨 Sending API request to /api/groq-chat...');
       const res = await axios.post('/api/groq-chat', {
         messages: conversationHistory.current,
         systemPrompt,
       });
 
+      console.log('📥 Received response from API');
       const aiResponse = res.data.content;
 
       const assistantMessage: Message = { role: 'assistant', text: aiResponse };
@@ -210,8 +212,23 @@ const MedicalVoiceAgent = () => {
       setLiveTranscripts('');
       speakText(aiResponse);
 
-    } catch {
-      toast.error('AI response failed');
+    } catch (error: any) {
+      console.error('❌ API Error:', {
+        message: error.message,
+        responseStatus: error.response?.status,
+        responseData: error.response?.data,
+        isNetworkError: error.code === 'ERR_NETWORK'
+      });
+      
+      let errorMsg = 'AI response failed';
+      if (error.code === 'ERR_NETWORK' || error.message.includes('ERR_CONNECTION')) {
+        errorMsg = 'Cannot connect to API. Check your internet or server status.';
+      } else if (error.response?.status === 500) {
+        errorMsg = 'Server error: ' + (error.response?.data?.details || 'Unknown error');
+      }
+      
+      toast.error(errorMsg);
+      setLiveTranscripts('');
     }
   };
 
