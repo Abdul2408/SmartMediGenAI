@@ -39,6 +39,7 @@ const MedicalVoiceAgent = () => {
   const recognitionRef = useRef<any>(null);
   const synthesisRef = useRef<SpeechSynthesis | null>(null);
   const shouldRestartRecognition = useRef<boolean>(false);
+  const shouldStartRecognitionOnTtsEnd = useRef<boolean>(false);
   const conversationHistory = useRef<Array<{ role: string, content: string }>>([]);
 
   useEffect(() => {
@@ -144,14 +145,14 @@ const MedicalVoiceAgent = () => {
       let errorMsg = `Mic error: ${event.error}`;
       
       if (event.error === 'no-speech') {
-        errorMsg = 'No speech heard. Tap microphone settings to verify access, then try again.';
-        console.log('💡 Debug: no-speech usually means permission denied or mic not working');
+        errorMsg = '❌ No microphone audio detected. Check Settings → Microphone OR another app is using your mic.';
+        console.log('💡 Troubleshooting:\n1. Check browser Settings → Privacy → Microphone has permission\n2. Unmute system audio\n3. Close other apps using the mic\n4. Refresh page and try again');
       } else if (event.error === 'not-allowed') {
-        errorMsg = 'Microphone permission denied. Allow mic access in browser settings → Privacy.';
+        errorMsg = '❌ Microphone permission denied. Click 🔒 in address bar → Allow Microphone';
       } else if (event.error === 'network') {
-        errorMsg = 'Network error detected. Check internet connection.';
+        errorMsg = '❌ Network error. Check internet connection.';
       } else if (event.error === 'audio-capture') {
-        errorMsg = 'No microphone found or mic is unavailable.';
+        errorMsg = '❌ No microphone found. Check if mic is connected & enabled in system settings.';
       }
       
       setLiveTranscripts(errorMsg);
@@ -181,7 +182,8 @@ const MedicalVoiceAgent = () => {
     setMessages(prev => [...prev, userMessage]);
     conversationHistory.current.push({ role: 'user', content: transcript });
 
-    shouldRestartRecognition.current = true; // Enable restart for next AI response
+    // Set flag to restart recognition after AI responds
+    shouldStartRecognitionOnTtsEnd.current = true;
     await getAIResponse();
   };
 
@@ -220,7 +222,7 @@ const MedicalVoiceAgent = () => {
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.onstart = () => {
-      console.log('🔊 AI speaking...');
+      console.log('🔊 AI speaking started...');
       setIsSpeaking(true);
     };
     utterance.onend = () => {
@@ -228,31 +230,22 @@ const MedicalVoiceAgent = () => {
       setIsSpeaking(false);
       setCurrentRole(null);
       
-      // Only restart recognition if this is a user-response message (not welcome)
-      if (!shouldRestartRecognition.current) {
-        console.log('ℹ️ Welcome message spoken - recognition already listening in background');
-        return;
-      }
-      
-      // Wait 1.5 seconds after TTS finishes, then restart recognition
-      setTimeout(() => {
-        if (callStarted && recognitionRef.current) {
-          try {
-            console.log('🎤 Restarting recognition after AI response...');
-            recognitionRef.current.start();
-          } catch (err) {
-            console.log('⚠️ Failed to restart recognition:', err);
-            // Try again after another 500ms
-            setTimeout(() => {
-              try {
-                recognitionRef.current?.start();
-              } catch (err2) {
-                console.log('⚠️ Second restart attempt failed');
-              }
-            }, 500);
+      // Wait 2 seconds after TTS finishes, then start recognition
+      // This prevents audio input/output conflicts
+      if (shouldStartRecognitionOnTtsEnd.current) {
+        console.log('⏳ Waiting 2 seconds after TTS, then starting recognition...');
+        setTimeout(() => {
+          if (callStarted && recognitionRef.current) {
+            try {
+              console.log('🎤 Starting recognition...');
+              recognitionRef.current.start();
+            } catch (err) {
+              console.error('❌ Failed to start recognition:', err);
+              setLiveTranscripts('Microphone error. Refresh page and try again.');
+            }
           }
-        }
-      }, 1500);
+        }, 2000);
+      }
     };
 
     synthesisRef.current.speak(utterance);
@@ -269,17 +262,18 @@ const MedicalVoiceAgent = () => {
       if (!recognition) return;
 
       recognitionRef.current = recognition;
-      recognition.start();
-
+      // DON'T start recognition yet - wait for welcome TTS to finish
+      
       setCallStarted(true);
-      shouldRestartRecognition.current = false; // Don't restart for welcome message
+      shouldRestartRecognition.current = false;
+      shouldStartRecognitionOnTtsEnd.current = true; // START after welcome TTS ends
 
       const welcome = "Hello, I am your AI Medical Voice Agent. How can I help you today?";
       conversationHistory.current.push({ role: 'assistant', content: welcome });
       setMessages([{ role: 'assistant', text: welcome }]);
-      speakText(welcome);
+      speakText(welcome); // This will trigger recognition start after TTS finishes
       
-      console.log('✅ Call started successfully');
+      console.log('✅ Call started - recognition will start after welcome message');
     } catch (err) {
       console.error('Error starting call:', err);
       toast.error('Failed to start call. Check browser permissions.');
