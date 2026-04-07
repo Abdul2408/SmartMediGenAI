@@ -35,22 +35,29 @@ export async function POST(req: NextRequest) {
       content: chatCompletion.choices[0].message.content,
     });
   } catch (error: any) {
-    // Log technical error for debugging (server-side only)
-    console.error('❌ Groq API Error:', {
-      message: error.message,
-      status: error.status,
-      type: error.constructor.name
-    });
+    // Log FULL error details for debugging
+    console.error('❌ GROQ API ERROR - FULL DETAILS:');
+    console.error('Error message:', error.message);
+    console.error('Error status:', error.status);
+    console.error('Error code:', error.code);
+    console.error('Error type:', error.constructor.name);
+    console.error('Full error object:', error);
+    
+    // Check if it's a Groq API error with response
+    if (error.response) {
+      console.error('Groq response status:', error.response.status);
+      console.error('Groq response data:', error.response.data);
+    }
 
     // Return generic, user-friendly error (without technical details)
     let userMessage = 'Unable to get AI response. Please try again.';
     
     if (error.message?.includes('model') || error.message?.includes('decommissioned')) {
-      userMessage = 'AI model update required. Please refresh and try again.';
+      userMessage = 'AI model unavailable. Please try again.';
     } else if (error.message?.includes('API') || error.message?.includes('key')) {
-      userMessage = 'AI service configuration issue. Please try again later.';
-    } else if (error.status === 429) {
-      userMessage = 'Too many requests. Please wait and try again.';
+      userMessage = 'AI service configuration issue.';
+    } else if (error.status === 429 || error.code === 'rate_limit_exceeded') {
+      userMessage = 'Too many requests. Please wait a moment.';
     }
     
     return NextResponse.json(
