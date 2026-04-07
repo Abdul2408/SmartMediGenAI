@@ -92,30 +92,47 @@ export default function Chatbot() {
     setMessages((m) => [...m, { role: "user", text: userMessage }]);
     setInput("");
 
-    if (userMessage.toLowerCase() === "summarize") {
-      const combined = messages
-        .filter((m) => m.role === "user")
-        .map((m) => m.text)
-        .join(". ");
+    try {
+      if (userMessage.toLowerCase() === "summarize") {
+        const combined = messages
+          .filter((m) => m.role === "user")
+          .map((m) => m.text)
+          .join(". ");
 
-      const res = await fetch(`${API_BASE_URL}/chat-summary`, {
+        const res = await fetch(`${API_BASE_URL}/chat-summary`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: combined }),
+        });
+        
+        if (!res.ok) {
+          setMessages((m) => [...m, { role: "bot", text: "⚠️ Summary service unavailable. Please try again." }]);
+          return;
+        }
+        
+        const data = await res.json();
+        setMessages((m) => [...m, { role: "bot", text: "📋 Summary: " + data.summary }]);
+        sessionStorage.setItem("diagnosisSummary", data.summary);
+        return;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/chat-predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: combined }),
+        body: JSON.stringify({ message: userMessage }),
       });
+      
+      if (!res.ok) {
+        setMessages((m) => [...m, { role: "bot", text: "⚠️ AI service temporarily unavailable. Please try again." }]);
+        return;
+      }
+      
       const data = await res.json();
-      setMessages((m) => [...m, { role: "bot", text: "📋 Summary: " + data.summary }]);
-      sessionStorage.setItem("diagnosisSummary", data.summary);
-      return;
+      setMessages((m) => [...m, { role: "bot", text: data.reply }]);
+    } catch (error) {
+      console.error("Chat error:", error);
+      setMessages((m) => [...m, { role: "bot", text: "⚠️ Connection error. Please check your internet and try again." }]);
     }
-
-    const res = await fetch(`${API_BASE_URL}/chat-predict`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userMessage }),
-    });
-    const data = await res.json();
-    setMessages((m) => [...m, { role: "bot", text: data.reply }]);
   }
 
   // ✅ KEY FIX: OCR runs in the browser via Tesseract.js — zero CORS issues

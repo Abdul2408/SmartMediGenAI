@@ -263,11 +263,15 @@ const MedicalVoiceAgent = () => {
     } catch (error: any) {
       console.error('❌ API Error:', error);
       
-      let errorMsg = 'AI response failed';
+      // Show generic user-friendly message, not technical details
+      let errorMsg = 'Unable to get AI response. Please try again.';
+      
       if (error.code === 'ERR_NETWORK') {
-        errorMsg = 'Cannot connect to API. Check your internet.';
+        errorMsg = 'Connection lost. Check your internet and try again.';
       } else if (error.response?.status === 500) {
-        errorMsg = 'Server error: ' + (error.response?.data?.details || 'Unknown error');
+        errorMsg = 'Temporary service issue. Please try again in a moment.';
+      } else if (error.response?.status === 429) {
+        errorMsg = 'Service busy. Please wait a moment and try again.';
       }
       
       toast.error(errorMsg);
